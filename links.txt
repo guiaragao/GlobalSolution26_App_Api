@@ -2,7 +2,7 @@ ALERTABAIRRO - LINKS DA ENTREGA
 ===============================
 
 Repositorio GitHub:
-https://github.com/luanaestanislau/GlobalSolution26_App
+https://github.com/guiaragao/GlobalSolution26_App_Api
 
 Video de demonstracao do app:
 [COLE AQUI O LINK DO VIDEO]
