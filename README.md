@@ -14,7 +14,7 @@ Moradores registram ocorrências (alagamento, árvore caída, falta de luz), enc
 ![JWT](https://img.shields.io/badge/Auth-JWT_%2B_bcrypt-000000?logo=jsonwebtokens&logoColor=white)
 ![Testes](https://img.shields.io/badge/testes-29_passando-brightgreen)
 
-[Arquitetura](#-arquitetura) · [Como rodar](#-como-rodar) · [Endpoints](#-endpoints) · [Banco](#-banco-de-dados) · [Testes](#-testes) · [Equipe](#-equipe)
+[Arquitetura](#-arquitetura) · [Como rodar](#-como-rodar) · [Endpoints](#-endpoints) · [Banco](#-banco-de-dados) · [Testes](#-testes)
 
 </div>
 
@@ -176,15 +176,6 @@ API_URL=http://localhost:3000 npm run test:integracao
 - **Assíncrono:** atende muitas requisições enquanto espera o Oracle, bom para picos durante uma enchente.
 - **node-oracledb** é o driver oficial da Oracle, com pool e chamada direta de procedures. O modo *thin* dispensa o Instant Client.
 - **Pouco código:** Express para as rotas, `bcryptjs` e `jsonwebtoken` para a segurança, e testes com o `node:test` nativo.
-
-## 👥 Equipe
-
-| Nome | RM | Responsabilidade |
-|---|---|---|
-| _preencher_ | _rm_ | App mobile |
-| _preencher_ | _rm_ | Banco A (modelagem) |
-| _preencher_ | _rm_ | Banco B (automação PL/SQL) |
-| _preencher_ ([guiaragao](https://github.com/guiaragao)) | _rm_ | API Node.js e repositório |
 
 ## 🔗 Links
 
