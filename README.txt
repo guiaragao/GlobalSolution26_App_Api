@@ -279,6 +279,7 @@ Tabelas usadas pela API (nomes das colunas):
 Ids gerados pelo banco (IDENTITY ou sequence + trigger). Valores de status/prioridade em
 minusculo, iguais aos do app ('aberta', 'em_atendimento', 'critica', 'aguardando'...).
 Se algum nome no banco for diferente, ajuste so em api/src/repositorio.js (todo o SQL esta la).
+Passo a passo detalhado para implementar as rotinas: banco/INSTRUCOES_PESSOA4.txt
 
 
 FUNCOES E METODOS (codigo)
@@ -355,7 +356,7 @@ Arquivos esperados aqui:
     FN_ABRIGO_MAIS_PROXIMO, PRC_CONTROLE_VAGAS, PRC_ENCERRAR_PEDIDOS_ANTIGOS
 - Script de testes das rotinas
 
-Assinaturas e colunas que a API usa: veja api/README_API.txt,
-secao "CHAMADAS AO BANCO (contrato com a Pessoa 4)".
+Assinaturas, colunas, codigos de erro e como testar com a API:
+veja banco/INSTRUCOES_PESSOA4.txt (passo a passo para a Pessoa 4).
 
 [PESSOA 3/4: substituam este texto pelo README do banco (como rodar e testar as rotinas).]

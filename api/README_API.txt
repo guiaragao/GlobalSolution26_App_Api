@@ -137,6 +137,7 @@ Tabelas usadas pela API (nomes das colunas):
 Ids gerados pelo banco (IDENTITY ou sequence + trigger). Valores de status/prioridade em
 minusculo, iguais aos do app ('aberta', 'em_atendimento', 'critica', 'aguardando'...).
 Se algum nome no banco for diferente, ajuste so em api/src/repositorio.js (todo o SQL esta la).
+Passo a passo detalhado para implementar as rotinas: banco/INSTRUCOES_PESSOA4.txt
 
 
 FUNCOES E METODOS (codigo)

@@ -1,0 +1,269 @@
+ALERTABAIRRO - INSTRUCOES PARA A PESSOA 4 (automacao PL/SQL)
+=============================================================
+
+Este arquivo diz EXATAMENTE o que a API (pasta api/) espera das suas rotinas.
+A API ja esta pronta e chama as rotinas pelo nome e pela ORDEM dos parametros.
+Se o nome, a ordem ou o tipo mudar, a API quebra. Na duvida, siga este arquivo
+ou avise para ajustarmos api/src/repositorio.js (todo o SQL da API esta la).
+
+Resumo do que voce entrega (pasta banco/):
+  1. PRC_REGISTRAR_OCORRENCIA        (procedure)
+  2. TRG de escalonamento            (trigger na tabela OCORRENCIA)
+  3. FN_ABRIGO_MAIS_PROXIMO          (function)
+  4. PRC_CONTROLE_VAGAS              (procedure)
+  5. PRC_ENCERRAR_PEDIDOS_ANTIGOS    (procedure)
+  6. Script de testes das rotinas
+  7. README do banco (como rodar e testar) -> substitua banco/README_BANCO.txt
+
+
+------------------------------------------------------------------
+0. REGRAS GERAIS (valem para todas as rotinas)
+------------------------------------------------------------------
+- Crie os objetos SEM aspas no nome (CREATE OR REPLACE PROCEDURE prc_controle_vagas ...).
+  Com aspas ("Prc_Controle_Vagas") o Oracle passa a diferenciar maiusculas e a API nao acha.
+- COMMIT: nao e obrigatorio. A API faz commit automatico depois de cada chamada.
+  Se voce colocar COMMIT dentro da rotina, tambem funciona.
+- Erros de regra de negocio: use RAISE_APPLICATION_ERROR com codigo entre -20000 e -20999.
+  A API transforma isso em HTTP 422 e MOSTRA A MENSAGEM NO APP. Entao escreva a mensagem
+  curta, em portugues, pensando no usuario final. Exemplo:
+      RAISE_APPLICATION_ERROR(-20002, 'Abrigo sem vagas suficientes');
+  vira no app:  { "erro": "Abrigo sem vagas suficientes" }
+  Qualquer outro erro do Oracle vira HTTP 500 "erro interno" (o usuario nao ve o detalhe).
+- Use exatamente estes codigos (para todos falarem a mesma lingua):
+      -20001  Usuario nao encontrado
+      -20002  Abrigo sem vagas suficientes
+      -20003  Abrigo nao encontrado
+      -20004  Quantidade de saida maior que as vagas ocupadas
+      -20005  Dados invalidos (ex.: latitude/longitude fora do intervalo, quantidade 0)
+- Valores de texto SEMPRE em minusculo e sem acento, iguais aos do app:
+      OCORRENCIA.status      : 'aberta' | 'em_atendimento' | 'resolvida'
+      OCORRENCIA.prioridade  : 'normal' | 'alta' | 'critica'
+      PEDIDO_AJUDA.status    : 'aguardando' | 'atendido'
+  Qualquer outro valor (ex.: 'ENCERRADO', 'Alta', 'crítica') quebra as cores e filtros do app.
+
+
+------------------------------------------------------------------
+1. TABELAS QUE A API USA (confira com a Pessoa 3)
+------------------------------------------------------------------
+A API faz INSERT sem informar id, status e data, e usa "RETURNING id INTO". Por isso:
+- id precisa ser gerado pelo banco: NUMBER GENERATED ALWAYS AS IDENTITY (ou sequence+trigger)
+- as colunas com DEFAULT abaixo precisam ter o DEFAULT no banco
+
+USUARIO       id (identity, PK), nome VARCHAR2(100), email VARCHAR2(150) UNIQUE,
+              senha_hash VARCHAR2(100)  <- hash bcrypt tem 60 caracteres,
+              bairro VARCHAR2(100), perfil VARCHAR2(20) ('morador'|'idoso'|'voluntario'),
+              criado_em TIMESTAMP DEFAULT SYSTIMESTAMP
+
+OCORRENCIA    id (identity, PK), id_usuario (FK USUARIO), tipo VARCHAR2(50),
+              descricao VARCHAR2(500), latitude NUMBER(9,6), longitude NUMBER(9,6),
+              status VARCHAR2(20) DEFAULT 'aberta', prioridade VARCHAR2(10) DEFAULT 'normal',
+              relatos NUMBER DEFAULT 1, bairro VARCHAR2(100), foto_uri VARCHAR2(500) NULL,
+              criada_em TIMESTAMP DEFAULT SYSTIMESTAMP          <- "criada_em" (feminino)
+
+ABRIGO        id (identity, PK), nome VARCHAR2(100), endereco VARCHAR2(200),
+              latitude NUMBER(9,6), longitude NUMBER(9,6), capacidade NUMBER,
+              vagas_ocupadas NUMBER DEFAULT 0
+              CHECK (vagas_ocupadas BETWEEN 0 AND capacidade)
+
+PEDIDO_AJUDA  id (identity, PK), id_usuario (FK USUARIO), modo VARCHAR2(10) ('pedido'|'oferta'),
+              categoria VARCHAR2(50), descricao VARCHAR2(500),
+              urgencia VARCHAR2(10) ('baixa'|'media'|'alta'),
+              status VARCHAR2(20) DEFAULT 'aguardando',
+              latitude NUMBER(9,6) NULL, longitude NUMBER(9,6) NULL,
+              criado_em TIMESTAMP DEFAULT SYSTIMESTAMP          <- "criado_em" (masculino)
+
+CHECKIN       id (identity, PK), id_usuario (FK USUARIO),
+              status VARCHAR2(20) ('estou_bem'|'preciso_de_ajuda'),
+              latitude NUMBER(9,6) NULL, longitude NUMBER(9,6) NULL,
+              criado_em TIMESTAMP DEFAULT SYSTIMESTAMP
+
+Carga inicial: insira alguns ABRIGOs (o app nao cadastra abrigos). Usuarios NAO devem ser
+inseridos por script com senha em texto: crie pela rota POST /auth/cadastro (a API gera o hash).
+
+
+------------------------------------------------------------------
+2. PRC_REGISTRAR_OCORRENCIA
+------------------------------------------------------------------
+Usada em: POST /ocorrencias  (botao "Registrar" da tela Nova Ocorrencia)
+
+Assinatura (nesta ordem):
+  PROCEDURE prc_registrar_ocorrencia(
+      p_id_usuario    IN  NUMBER,
+      p_tipo          IN  VARCHAR2,
+      p_descricao     IN  VARCHAR2,
+      p_latitude      IN  NUMBER,
+      p_longitude     IN  NUMBER,
+      p_foto_uri      IN  VARCHAR2,   -- pode vir NULL
+      p_id_ocorrencia OUT NUMBER      -- id gerado (OBRIGATORIO devolver)
+  )
+
+Como a API chama:
+  BEGIN prc_registrar_ocorrencia(:idUsuario, :tipo, :descricao, :latitude, :longitude, :fotoUri, :id); END;
+  Depois faz SELECT da ocorrencia pelo id devolvido e manda para o app.
+
+O que a procedure precisa fazer:
+  a) Buscar o bairro do usuario (USUARIO.bairro). Se o usuario nao existir:
+     RAISE_APPLICATION_ERROR(-20001, 'Usuario nao encontrado').
+  b) Definir a prioridade inicial. Tipos que o app envia (texto exato, com acento):
+       'Alagamento', 'Árvore caída', 'Sem luz', 'Deslizamento'
+     Sugestao: 'Alagamento' e 'Deslizamento' -> 'alta'; demais -> 'normal'.
+  c) INSERT com status 'aberta', relatos 1, bairro do usuario, e
+     RETURNING id INTO p_id_ocorrencia.
+  A API ja valida tipo/descricao/coordenadas antes de chamar; validar de novo no banco e opcional.
+
+
+------------------------------------------------------------------
+3. TRIGGER DE ESCALONAMENTO DE PRIORIDADE
+------------------------------------------------------------------
+Usada em: PATCH /ocorrencias/:id  { acao: "confirmar" }  (botao "Tambem vejo isso aqui")
+
+Como a API dispara: ela NAO chama o trigger, faz apenas
+  UPDATE ocorrencia SET relatos = relatos + 1 WHERE id = :id
+e logo em seguida le a linha de novo. Entao a prioridade nova precisa ja estar gravada
+quando o UPDATE terminar.
+
+Regra: com 3 ou mais relatos na mesma area, a prioridade sobe.
+Sugestao: ao chegar em 3 relatos, sobe um nivel (normal -> alta, alta -> critica).
+Nao escale ocorrencias com status 'resolvida'.
+
+CUIDADO com o erro ORA-04091 ("table is mutating"):
+  Um trigger FOR EACH ROW na OCORRENCIA NAO pode fazer SELECT na propria OCORRENCIA.
+  - Se a regra olha so a propria linha (o caso mais simples, pois cada confirmacao e
+    "tambem vejo isso aqui" no mesmo lugar): use BEFORE UPDATE OF relatos ... FOR EACH ROW
+    e altere :NEW.prioridade direto. Sem SELECT, sem erro.
+  - Se a regra soma relatos de ocorrencias proximas (ex.: mesmo tipo, raio de 500 m, nao
+    resolvidas): use COMPOUND TRIGGER, guardando os ids na secao AFTER EACH ROW e fazendo o
+    SELECT/UPDATE na secao AFTER STATEMENT.
+O trigger tambem pode ser AFTER INSERT (compound) para escalar quando uma ocorrencia nova
+cair numa area que ja tem outras.
+
+
+------------------------------------------------------------------
+4. FN_ABRIGO_MAIS_PROXIMO
+------------------------------------------------------------------
+Usada em: GET /abrigos/proximo?lat=..&lng=..  (botao "Rota para o abrigo mais proximo")
+
+Assinatura:
+  FUNCTION fn_abrigo_mais_proximo(
+      p_latitude  IN NUMBER,
+      p_longitude IN NUMBER
+  ) RETURN NUMBER    -- id do abrigo
+
+Como a API chama (dentro de um SELECT):
+  SELECT ... FROM abrigo WHERE id = (SELECT fn_abrigo_mais_proximo(:lat, :lng) FROM dual)
+
+O que a function precisa fazer:
+  - Considerar SO abrigos com vaga: vagas_ocupadas < capacidade.
+  - Devolver o id do mais perto. Distancia: formula de Haversine (raio da Terra 6371 km),
+    graus para radianos = graus * ACOS(-1) / 180.
+  - Sem nenhum abrigo com vaga: RETURN NULL (nao deixe estourar NO_DATA_FOUND).
+    A API devolve null e o app mostra "Nenhum abrigo com vagas no momento".
+  - NAO pode fazer INSERT/UPDATE/DELETE (function usada em SELECT -> erro ORA-14551).
+
+
+------------------------------------------------------------------
+5. PRC_CONTROLE_VAGAS
+------------------------------------------------------------------
+Usada em: PATCH /abrigos/:id/vagas  { quantidade }   (so perfil voluntario)
+
+Assinatura:
+  PROCEDURE prc_controle_vagas(
+      p_id_abrigo  IN NUMBER,
+      p_quantidade IN NUMBER     -- positivo = pessoas entrando, negativo = saindo
+  )
+
+Como a API chama:
+  BEGIN prc_controle_vagas(:id, :quantidade); END;
+  Depois le o abrigo e devolve { ..., vagasOcupadas } atualizado.
+
+O que a procedure precisa fazer:
+  - SELECT ... FOR UPDATE no abrigo (trava a linha: dois voluntarios ao mesmo tempo nao
+    passam da capacidade).
+  - Abrigo inexistente        -> RAISE_APPLICATION_ERROR(-20003, 'Abrigo nao encontrado')
+  - Passaria da capacidade    -> RAISE_APPLICATION_ERROR(-20002, 'Abrigo sem vagas suficientes')
+  - Ficaria abaixo de zero    -> RAISE_APPLICATION_ERROR(-20004, 'Quantidade de saida maior que as vagas ocupadas')
+  - Senao: UPDATE abrigo SET vagas_ocupadas = vagas_ocupadas + p_quantidade.
+  A API ja garante que p_quantidade e inteiro diferente de 0 (entre -1000 e 1000).
+
+
+------------------------------------------------------------------
+6. PRC_ENCERRAR_PEDIDOS_ANTIGOS
+------------------------------------------------------------------
+Usada em: POST /ajuda/encerrar-antigos  { dias }   (so perfil voluntario; padrao 7 dias)
+
+Assinatura:
+  PROCEDURE prc_encerrar_pedidos_antigos(
+      p_dias           IN  NUMBER,
+      p_qtd_encerrados OUT NUMBER    -- quantos pedidos foram encerrados (OBRIGATORIO)
+  )
+
+Como a API chama:
+  BEGIN prc_encerrar_pedidos_antigos(:dias, :qtd); END;
+  e responde { "encerrados": <p_qtd_encerrados> }.
+
+O que a procedure precisa fazer:
+  - UPDATE pedido_ajuda SET status = 'atendido'
+     WHERE status = 'aguardando' AND criado_em < SYSTIMESTAMP - NUMTODSINTERVAL(p_dias, 'DAY')
+  - p_qtd_encerrados := SQL%ROWCOUNT;
+  - Use o status 'atendido' (o app so conhece 'aguardando' e 'atendido').
+  Opcional: um job DBMS_SCHEDULER diario chamando a procedure com 7 dias.
+
+
+------------------------------------------------------------------
+7. COMO TESTAR SUAS ROTINAS DO JEITO QUE A API USA
+------------------------------------------------------------------
+a) No SQL Developer (copie para o seu script de testes):
+
+   SET SERVEROUTPUT ON
+   DECLARE
+     v_id  NUMBER;
+     v_qtd NUMBER;
+   BEGIN
+     prc_registrar_ocorrencia(1, 'Alagamento', 'Teste', -23.5489, -46.6388, NULL, v_id);
+     DBMS_OUTPUT.PUT_LINE('ocorrencia criada: ' || v_id);
+
+     UPDATE ocorrencia SET relatos = relatos + 1 WHERE id = v_id;   -- 2 relatos
+     UPDATE ocorrencia SET relatos = relatos + 1 WHERE id = v_id;   -- 3 relatos -> trigger
+     FOR r IN (SELECT relatos, prioridade FROM ocorrencia WHERE id = v_id) LOOP
+       DBMS_OUTPUT.PUT_LINE('relatos=' || r.relatos || ' prioridade=' || r.prioridade);
+     END LOOP;
+
+     DBMS_OUTPUT.PUT_LINE('abrigo mais proximo: ' || fn_abrigo_mais_proximo(-23.55, -46.63));
+
+     prc_controle_vagas(1, 2);      -- entrada de 2 pessoas
+     prc_controle_vagas(1, -1);     -- saida de 1 pessoa
+
+     prc_encerrar_pedidos_antigos(7, v_qtd);
+     DBMS_OUTPUT.PUT_LINE('pedidos encerrados: ' || v_qtd);
+     ROLLBACK;  -- desfaz o teste
+   END;
+   /
+
+   Teste tambem os erros: prc_controle_vagas num abrigo lotado deve dar ORA-20002,
+   com id inexistente ORA-20003, e fn_abrigo_mais_proximo com todos lotados deve dar NULL.
+   (O id 1 do exemplo precisa existir em USUARIO e ABRIGO.)
+
+b) Com a API de verdade (teste de integracao):
+   1) cd api  ->  preencha o .env com o MESMO usuario Oracle onde criou as rotinas
+   2) npm install  e  npm start
+   3) em outro terminal:
+      (PowerShell)  $env:API_URL="http://localhost:3000"; npm run test:integracao
+      (bash)        API_URL=http://localhost:3000 npm run test:integracao
+   Se tudo estiver certo: "# pass 1" e "# fail 0".
+   Se falhar, o terminal da API mostra o erro do Oracle (ex.: ORA-06550 = nome ou numero de
+   parametros diferente do combinado neste arquivo).
+
+
+------------------------------------------------------------------
+8. CHECKLIST ANTES DE ENTREGAR
+------------------------------------------------------------------
+[ ] Nomes das 4 rotinas iguais a este arquivo, criadas sem aspas
+[ ] Ordem e quantidade dos parametros iguais (inclusive os OUT)
+[ ] prc_registrar_ocorrencia devolve o id em p_id_ocorrencia
+[ ] prc_encerrar_pedidos_antigos devolve a quantidade em p_qtd_encerrados
+[ ] fn_abrigo_mais_proximo devolve NULL quando nao ha vaga (sem erro)
+[ ] Trigger nao gera ORA-04091 ao confirmar (UPDATE ... relatos + 1)
+[ ] Erros de regra com RAISE_APPLICATION_ERROR -20001 a -20005 e mensagem em portugues
+[ ] status/prioridade sempre em minusculo: 'aberta', 'critica', 'aguardando', 'atendido'...
+[ ] Tabelas com id IDENTITY e os DEFAULTs da secao 1
+[ ] npm run test:integracao passando contra o Oracle
