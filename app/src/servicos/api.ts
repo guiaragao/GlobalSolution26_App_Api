@@ -17,10 +17,13 @@ import {
 import { Coordenada } from '../utils/geo';
 import * as mock from './mock';
 
-export const USE_MOCK = true;
+// Integração: defina EXPO_PUBLIC_API_URL (ex.: http://192.168.0.10:3000) para usar a API real.
+// Sem a variável, o app continua com os dados falsos.
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
+export const USE_MOCK = !API_URL;
 
 // Use o IP do computador que roda a API (não use "localhost" no celular).
-export const BASE_URL = 'http://192.168.0.10:3000';
+export const BASE_URL = API_URL ?? 'http://192.168.0.10:3000';
 
 const http = axios.create({ baseURL: BASE_URL, timeout: 10000 });
 

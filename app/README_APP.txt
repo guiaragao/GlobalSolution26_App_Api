@@ -33,10 +33,11 @@ COMO APLICAR O CODIGO (passo a passo)
 MODO DE DADOS (falsos x API real)
 ---------------------------------
 Arquivo: src/servicos/api.ts
-- USE_MOCK = true  -> usa dados falsos (src/servicos/mock.ts). Funciona sem API.
-- USE_MOCK = false -> chama a API Node.js. Ajuste BASE_URL para o IP do computador
-  que roda a API (ex.: http://192.168.0.10:3000). Celular e computador devem estar
-  na mesma rede Wi-Fi.
+- Sem a variavel EXPO_PUBLIC_API_URL -> USE_MOCK = true, usa dados falsos
+  (src/servicos/mock.ts). Funciona sem API.
+- Com EXPO_PUBLIC_API_URL=http://IP_DO_PC:3000 -> USE_MOCK = false, chama a API Node.js
+  (pasta api/). Ex.: EXPO_PUBLIC_API_URL=http://192.168.0.10:3000 npx expo start
+  Celular e computador devem estar na mesma rede Wi-Fi.
 
 Rotas esperadas da API (contrato combinado no dia 1):
   POST  /auth/login           -> { token, usuario }

@@ -1,0 +1,22 @@
+{
+  "name": "alertabairro-api",
+  "version": "1.0.0",
+  "description": "API REST do AlertaBairro (Node.js + Express + Oracle)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "test:integracao": "node --test test/integracao.test.js"
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "oracledb": "^26.0.0"
+  }
+}
